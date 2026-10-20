@@ -1,0 +1,347 @@
+FL-ENERGY-ACMONITOR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE, Integer32,
+    enterprises
+        FROM SNMPv2-SMI
+    DisplayString, TEXTUAL-CONVENTION
+        FROM SNMPv2-TC;
+
+FlUtf8String ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "UTF-8 encoded text octets."
+    SYNTAX      OCTET STRING (SIZE (0..160))
+
+flEnergyAcMonitor MODULE-IDENTITY
+    LAST-UPDATED "202610181745Z"
+    ORGANIZATION "FLINK LLC"
+    CONTACT-INFO "Svyatoslav Serenkov"
+    DESCRIPTION
+        "FL Energy AC Monitor MIB. The enterprise root uses FLINK LLC's
+         registered IANA Private Enterprise Number 67213. All queryable
+         objects are read-only. No RS-485 bus objects or last-response
+         timestamps are defined. AC state objects report confirmed, fresh
+         observations only; unsupported or unknown instances are absent."
+    REVISION "202610181745Z"
+    DESCRIPTION "Clarify room, evaporator and condenser temperature sensors."
+    REVISION "202610181706Z"
+    DESCRIPTION "Expose T2B and T3 temperature sensors in the AC table."
+    REVISION "202610180000Z"
+    DESCRIPTION "Add observed automatic fan mode, compressor state and protection flags."
+    REVISION "202610160000Z"
+    DESCRIPTION "Use the registered FLINK LLC enterprise number 67213."
+    ::= { enterprises 67213 }
+
+flProduct OBJECT IDENTIFIER ::= { flEnergyAcMonitor 1 }
+flAlarm OBJECT IDENTIFIER ::= { flEnergyAcMonitor 2 }
+flAlarmNotifications OBJECT IDENTIFIER ::= { flAlarm 0 }
+flAcTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF FlAcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Compact table of configured conditioners."
+    ::= { flEnergyAcMonitor 3 }
+flGroupTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF FlGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Compact table of configured groups."
+    ::= { flEnergyAcMonitor 4 }
+
+flAcEntry OBJECT-TYPE
+    SYNTAX      FlAcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "One configured air conditioner, indexed by its XYE address."
+    INDEX       { flAcAddress }
+    ::= { flAcTable 1 }
+
+FlAcEntry ::= SEQUENCE {
+    flAcAddress           Integer32,
+    flAcName              FlUtf8String,
+    flAcAvailability      INTEGER,
+    flAcObservedPower     INTEGER,
+    flAcObservedMode      INTEGER,
+    flAcObservedSetpoint  Integer32,
+    flAcObservedFan       INTEGER,
+    flAcObservedT1        Integer32,
+    flAcObservedT2        Integer32,
+    flAcErrorFlags        Integer32,
+    flAcObservedFanAuto   INTEGER,
+    flAcCompressorRunning INTEGER,
+    flAcProtectionFlags   Integer32,
+    flAcObservedT2B       Integer32,
+    flAcObservedT3        Integer32
+}
+
+flAcAddress OBJECT-TYPE
+    SYNTAX      Integer32 (0..63)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "XYE protocol address and table index."
+    ::= { flAcEntry 1 }
+
+flAcName OBJECT-TYPE
+    SYNTAX      FlUtf8String (SIZE (1..96))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Configured human-readable conditioner name."
+    ::= { flAcEntry 2 }
+
+flAcAvailability OBJECT-TYPE
+    SYNTAX      INTEGER { unknown(0), online(1), offline(2) }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Current availability state."
+    ::= { flAcEntry 3 }
+
+flAcObservedPower OBJECT-TYPE
+    SYNTAX      INTEGER { on(1), off(2) }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed observed power state."
+    ::= { flAcEntry 4 }
+
+flAcObservedMode OBJECT-TYPE
+    SYNTAX      INTEGER { cool(0), heat(1), fan(2), dry(3) }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed observed operating mode."
+    ::= { flAcEntry 5 }
+
+flAcObservedSetpoint OBJECT-TYPE
+    SYNTAX      Integer32 (-32768..32767)
+    UNITS       "0.1 degrees Celsius"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed observed setpoint multiplied by ten."
+    ::= { flAcEntry 6 }
+
+flAcObservedFan OBJECT-TYPE
+    SYNTAX      INTEGER { stopped(0), low(1), medium(2), high(3) }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed measured fan speed. Auto with no reported physical speed has no value here; see flAcObservedFanAuto."
+    ::= { flAcEntry 7 }
+
+flAcObservedT1 OBJECT-TYPE
+    SYNTAX      Integer32 (-32768..32767)
+    UNITS       "0.1 degrees Celsius"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed room temperature (T1) multiplied by ten."
+    ::= { flAcEntry 8 }
+
+flAcObservedT2 OBJECT-TYPE
+    SYNTAX      Integer32 (-32768..32767)
+    UNITS       "0.1 degrees Celsius"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed evaporator temperature (T2) multiplied by ten."
+    ::= { flAcEntry 9 }
+
+flAcErrorFlags OBJECT-TYPE
+    SYNTAX      Integer32 (0..65535)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed error flags."
+    ::= { flAcEntry 10 }
+
+flAcObservedFanAuto OBJECT-TYPE
+    SYNTAX      INTEGER { manual(0), automatic(1) }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed observed automatic fan mode."
+    ::= { flAcEntry 11 }
+
+flAcCompressorRunning OBJECT-TYPE
+    SYNTAX      INTEGER { stopped(0), running(1) }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed compressor-running flag."
+    ::= { flAcEntry 12 }
+
+flAcProtectionFlags OBJECT-TYPE
+    SYNTAX      Integer32 (0..65535)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed protection bit mask. Mask 0x0002 identifies defrost; other bits are model-specific or unknown."
+    ::= { flAcEntry 13 }
+
+flAcObservedT2B OBJECT-TYPE
+    SYNTAX      Integer32 (-32768..32767)
+    UNITS       "0.1 degrees Celsius"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed additional evaporator temperature (T2b) multiplied by ten. The object is absent when unsupported or unavailable."
+    ::= { flAcEntry 14 }
+
+flAcObservedT3 OBJECT-TYPE
+    SYNTAX      Integer32 (-32768..32767)
+    UNITS       "0.1 degrees Celsius"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh, confirmed condenser temperature (T3) multiplied by ten. The object is absent when unsupported or unavailable."
+    ::= { flAcEntry 15 }
+
+flGroupEntry OBJECT-TYPE
+    SYNTAX      FlGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "One configured conditioner group, indexed by stable group ID."
+    INDEX       { flGroupId }
+    ::= { flGroupTable 1 }
+
+FlGroupEntry ::= SEQUENCE {
+    flGroupId         Integer32,
+    flGroupName       FlUtf8String,
+    flGroupMode       INTEGER,
+    flGroupState      INTEGER,
+    flGroupRequiredN  Integer32,
+    flGroupMaximumM   Integer32,
+    flGroupActive     Integer32,
+    flGroupMaxT1      Integer32
+}
+
+flGroupId OBJECT-TYPE
+    SYNTAX      Integer32 (1..65535)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Stable configured group identifier and table index."
+    ::= { flGroupEntry 1 }
+
+flGroupName OBJECT-TYPE
+    SYNTAX      FlUtf8String (SIZE (1..96))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Configured group name."
+    ::= { flGroupEntry 2 }
+
+flGroupMode OBJECT-TYPE
+    SYNTAX      INTEGER { manual(0), automatic(1) }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Configured group operating mode."
+    ::= { flGroupEntry 3 }
+
+flGroupState OBJECT-TYPE
+    SYNTAX      INTEGER { manual(0), normal(1), rotating(2), degraded(3), emergency(4) }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Current group state."
+    ::= { flGroupEntry 4 }
+
+flGroupRequiredN OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Minimum number of operating units."
+    ::= { flGroupEntry 5 }
+
+flGroupMaximumM OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Maximum number of simultaneously operating units."
+    ::= { flGroupEntry 6 }
+
+flGroupActive OBJECT-TYPE
+    SYNTAX      Integer32 (0..16)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of units currently observed as active in the group."
+    ::= { flGroupEntry 7 }
+
+flGroupMaxT1 OBJECT-TYPE
+    SYNTAX      Integer32 (-32768..32767)
+    UNITS       "0.1 degrees Celsius"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Fresh valid maximum T1 for this group, multiplied by ten."
+    ::= { flGroupEntry 8 }
+
+flAlarmState OBJECT-TYPE
+    SYNTAX      INTEGER { problem(1), recovery(2) }
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Whether the notification reports a problem or its recovery."
+    ::= { flAlarm 10 1 }
+
+flAlarmSeverity OBJECT-TYPE
+    SYNTAX      INTEGER { info(0), warning(1), critical(2) }
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Severity of the alarm transition."
+    ::= { flAlarm 10 2 }
+
+flAlarmType OBJECT-TYPE
+    SYNTAX      INTEGER { acOffline(1), acFault(2), groupDegraded(3), groupOverTemperature(4) }
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "One of the four supported alarm categories."
+    ::= { flAlarm 10 3 }
+
+flAlarmAcName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..96))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Printable ASCII AC name; Cyrillic characters are transliterated for compatibility. Empty for group alarms."
+    ::= { flAlarm 10 4 }
+
+flAlarmGroupName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..96))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Printable ASCII group name; Cyrillic characters are transliterated for compatibility. Empty for AC alarms."
+    ::= { flAlarm 10 5 }
+
+flAlarmText OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..160))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Printable ASCII event explanation for compatibility with legacy trap managers."
+    ::= { flAlarm 10 6 }
+
+flAlarmTimestamp OBJECT-TYPE
+    SYNTAX      FlUtf8String (SIZE (0..31))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "UTC RFC3339 timestamp when SNTP is valid; otherwise empty."
+    ::= { flAlarm 10 7 }
+
+flAlarmCode OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION "Associated device error flags or temperature value when available."
+    ::= { flAlarm 10 8 }
+
+flAcOffline NOTIFICATION-TYPE
+    OBJECTS { flAlarmState, flAlarmSeverity, flAlarmType, flAlarmAcName,
+              flAlarmGroupName, flAlarmText, flAlarmTimestamp, flAlarmCode }
+    STATUS current
+    DESCRIPTION "An AC became unavailable, or recovered."
+    ::= { flAlarmNotifications 1 }
+
+flAcFault NOTIFICATION-TYPE
+    OBJECTS { flAlarmState, flAlarmSeverity, flAlarmType, flAlarmAcName,
+              flAlarmGroupName, flAlarmText, flAlarmTimestamp, flAlarmCode }
+    STATUS current
+    DESCRIPTION "A confirmed nonzero AC error flag appeared, or cleared."
+    ::= { flAlarmNotifications 2 }
+
+flGroupDegraded NOTIFICATION-TYPE
+    OBJECTS { flAlarmState, flAlarmSeverity, flAlarmType, flAlarmAcName,
+              flAlarmGroupName, flAlarmText, flAlarmTimestamp, flAlarmCode }
+    STATUS current
+    DESCRIPTION "A group became unable to meet its configured active capacity, or recovered."
+    ::= { flAlarmNotifications 3 }
+
+flGroupOverTemperature NOTIFICATION-TYPE
+    OBJECTS { flAlarmState, flAlarmSeverity, flAlarmType, flAlarmAcName,
+              flAlarmGroupName, flAlarmText, flAlarmTimestamp, flAlarmCode }
+    STATUS current
+    DESCRIPTION "A group entered emergency state above its configured T1 threshold, or recovered."
+    ::= { flAlarmNotifications 4 }
+
+END

@@ -1,0 +1,5 @@
+; Copy to platformio.local.ini. Do not commit actual serial ports or secrets.
+[env:wt32-eth01]
+; upload_port = COM_REPLACE_ME
+; monitor_port = COM_REPLACE_ME
+; upload_speed = 460800

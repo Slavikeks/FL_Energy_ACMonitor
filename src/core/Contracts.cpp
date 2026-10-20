@@ -1,0 +1,11 @@
+// Compile all module contracts with both embedded and host toolchains.
+#include "fl/core/Application.h"
+#include "fl/core/EventLog.h"
+#include "fl/hal/Rs485Transport.h"
+#include "fl/xye/Bus.h"
+#include "fl/network/Network.h"
+#include "fl/web/Web.h"
+#include "fl/auth/Auth.h"
+#include "fl/snmp/Snmp.h"
+#include "fl/mqtt/Mqtt.h"
+#include "fl/ota/Ota.h"

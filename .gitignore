@@ -1,0 +1,81 @@
+# PlatformIO build products, downloaded libraries and local tool installations
+.pio/
+.pioenvs/
+.piolibdeps/
+.pio-core/
+.platformio/
+.tools/
+/build/
+/dist/
+
+# Python environments and caches (never publish installed packages)
+.venv/
+venv/
+env/
+.env/
+.virtualenv/
+.cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local IDE / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Machine-specific configuration and secrets; examples stay publishable
+platformio.local.ini
+.env
+.env.*
+!.env.example
+local_settings.json
+secrets*
+*.pem
+*.key
+
+# Generated binary artifacts (including native tests outside .pio)
+*.bin
+*.elf
+*.map
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+*.dll
+*.so
+*.dylib
+*.pdb
+.sconsign*
+
+# Device/configuration dumps
+*.dump
+nvs*.csv
+
+# Temporary editor/build files
+*.log
+*.tmp
+*.bak
+*.orig
+*.swp
+*.swo
+.coverage
+
+# Internal pre-release planning notes are excluded from the public snapshot.
+/CODEX_PROMPT.md
+/DEVELOPMENT_PLAN.md
+/SPECIFICATION.md
+/docs/FIRST_RELEASE_DRAFT.md
+/docs/IMPLEMENTATION_STATUS.md
+
+# Raw local photos/screenshots. Public, metadata-clean copies live in img/public/.
+/img/device.jpg
+/img/prew1.JPG
+/img/prew2.JPG
+/img/prew3.JPG
