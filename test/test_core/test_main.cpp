@@ -1023,17 +1023,26 @@ void test_alarm_manager_debounces_offline_and_emits_confirmed_recovery() {
     fl::Config config; config.startup_observe_only_s = 0;
     fl::RuntimeState state; fl::AcState ac; ac.address = 9; ac.name.assign("Server room");
     ac.availability = fl::Availability::Offline; state.conditioners.push_back(ac);
-    fl::AlarmManager manager; fl::ClockState clock{}; fl::AlarmEvent alarm;
+    fl::EventLog event_log; fl::AlarmManager manager(&event_log); fl::ClockState clock{}; fl::AlarmEvent alarm;
     manager.tick(state, clock, config); TEST_ASSERT_FALSE(manager.nextEvent(alarm));
     clock.uptime_ms = 9999; manager.tick(state, clock, config); TEST_ASSERT_FALSE(manager.nextEvent(alarm));
     clock.uptime_ms = 10000; manager.tick(state, clock, config);
     TEST_ASSERT_TRUE(manager.nextEvent(alarm)); TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::AcOffline);
     TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem); TEST_ASSERT_EQUAL_STRING("Server room", alarm.ac_name.c_str());
+    TEST_ASSERT_EQUAL_UINT(1, event_log.size());
     state.conditioners[0].availability = fl::Availability::Online; state.conditioners[0].freshness = fl::Freshness::Fresh;
+    fl::AcState added; added.address = 2; added.name.assign("Added later");
+    added.availability = fl::Availability::Online; added.freshness = fl::Freshness::Fresh;
+    fl::List<fl::AcState, fl::kMaxAc> reordered; reordered.push_back(added); reordered.push_back(state.conditioners[0]);
+    state.conditioners = reordered;
     clock.uptime_ms = 10001; manager.tick(state, clock, config); TEST_ASSERT_FALSE(manager.nextEvent(alarm));
     clock.uptime_ms = 20001; manager.tick(state, clock, config);
     TEST_ASSERT_TRUE(manager.nextEvent(alarm)); TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Recovery);
     TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    TEST_ASSERT_EQUAL_UINT(2, event_log.size());
+    fl::LogEvent logged; TEST_ASSERT_TRUE(event_log.get(1, logged));
+    TEST_ASSERT_TRUE(logged.severity == fl::Severity::Info);
+    TEST_ASSERT_NOT_NULL(std::strstr(logged.message.c_str(), "ALARM RECOVERY: AC offline"));
 }
 void test_alarm_manager_suppresses_boot_burst_and_debounces_fault() {
     fl::Config config; config.startup_observe_only_s = 60;
@@ -1052,15 +1061,79 @@ void test_alarm_manager_suppresses_boot_burst_and_debounces_fault() {
     TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Recovery);
 }
 void test_alarm_manager_reports_only_four_categories() {
-    fl::Config config; config.startup_observe_only_s = 0;
-    fl::GroupConfig saved; saved.id = 42; saved.name.assign("Cooling"); saved.high_temp_deci_c = 280; config.groups.push_back(saved);
-    fl::RuntimeState state; fl::GroupRuntime group; group.id = 42; group.name.assign("Cooling");
-    group.state = fl::GroupState::Emergency; group.temperature_deci_c.value = 300;
+    fl::Config config; config.startup_observe_only_s = 0; config.automatic_control_enabled = true;
+    fl::GroupConfig saved; saved.id = 42; saved.name.assign("Cooling"); saved.mode = fl::GroupMode::Auto;
+    saved.high_temp_deci_c = 280; config.groups.push_back(saved);
+    fl::RuntimeState state; state.observe_only = false;
+    fl::GroupRuntime group; group.id = 42; group.name.assign("Cooling"); group.mode = fl::GroupMode::Auto;
+    group.state = fl::GroupState::Emergency; group.emergency_operation = true; group.active_addresses.set(0);
+    group.temperature_deci_c.value = 300;
     group.temperature_deci_c.status = fl::ValueStatus::Valid; state.groups.push_back(group);
     fl::AlarmManager manager; fl::ClockState clock{}; fl::AlarmEvent alarm;
     manager.tick(state, clock, config); clock.uptime_ms = 10000; manager.tick(state, clock, config);
     TEST_ASSERT_TRUE(manager.nextEvent(alarm)); TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupOverTemperature);
     TEST_ASSERT_EQUAL_STRING("Cooling", alarm.group_name.c_str()); TEST_ASSERT_EQUAL_UINT(300, alarm.alarm.code);
+}
+void test_group_degraded_alarm_remains_active_during_overtemperature() {
+    fl::Config config; config.startup_observe_only_s = 0; config.automatic_control_enabled = true;
+    fl::GroupConfig saved; saved.id = 12; saved.name.assign("Cooling");
+    saved.mode = fl::GroupMode::Auto; saved.required_active = 1; saved.high_temp_deci_c = 280;
+    config.groups.push_back(saved);
+    fl::RuntimeState state; state.observe_only = false;
+    fl::GroupRuntime group; group.id = 12; group.name.assign("Cooling"); group.mode = fl::GroupMode::Auto;
+    group.required_active = 1; group.state = fl::GroupState::Emergency; group.emergency_operation = true;
+    group.temperature_deci_c.value = 300; group.temperature_deci_c.status = fl::ValueStatus::Valid;
+    state.groups.push_back(group);
+    fl::AlarmManager manager; fl::ClockState clock{}; fl::AlarmEvent alarm;
+    manager.tick(state, clock, config);
+    clock.uptime_ms = 10000; manager.tick(state, clock, config);
+    TEST_ASSERT_TRUE(manager.nextEvent(alarm)); TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupDegraded);
+    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem);
+    TEST_ASSERT_TRUE(manager.nextEvent(alarm)); TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupOverTemperature);
+    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    TEST_ASSERT_EQUAL_UINT(2, state.alarms.size());
+    clock.uptime_ms = 20000; manager.tick(state, clock, config);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    TEST_ASSERT_EQUAL_UINT(2, state.alarms.size());
+}
+void test_overtemperature_alarm_waits_for_configured_recovery_during_group_degradation() {
+    fl::Config config; config.startup_observe_only_s = 0; config.automatic_control_enabled = true;
+    fl::GroupConfig saved; saved.id = 17; saved.name.assign("Hot room"); saved.mode = fl::GroupMode::Auto;
+    saved.required_active = 1; saved.high_temp_deci_c = 260; saved.recovery_temp_deci_c = 250;
+    saved.recovery_delay_s = 5; config.groups.push_back(saved);
+    fl::RuntimeState state; state.observe_only = false;
+    fl::GroupRuntime group; group.id = 17; group.name.assign("Hot room"); group.mode = fl::GroupMode::Auto;
+    group.required_active = 1; group.active_addresses.set(0); group.state = fl::GroupState::Emergency;
+    group.emergency_operation = true; group.temperature_deci_c.value = 260;
+    group.temperature_deci_c.status = fl::ValueStatus::Valid; state.groups.push_back(group);
+    fl::AlarmManager manager; fl::ClockState clock{}; fl::AlarmEvent alarm;
+    manager.tick(state, clock, config);
+    clock.uptime_ms = 10000; manager.tick(state, clock, config);
+    TEST_ASSERT_TRUE(manager.nextEvent(alarm));
+    TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupOverTemperature);
+    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem);
+
+    // A group can become degraded while the room remains hot; this is not recovery.
+    state.groups[0].state = fl::GroupState::Degraded;
+    state.groups[0].emergency_operation = false;
+    state.groups[0].recovery_since_ms.reset();
+    clock.uptime_ms = 20000; manager.tick(state, clock, config);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    TEST_ASSERT_EQUAL_UINT(1, state.alarms.size());
+    TEST_ASSERT_TRUE(state.alarms[0].type == fl::AlarmType::GroupOverTemperature);
+
+    // Recovery requires a confirmed cool reading for the full group recovery delay.
+    state.groups[0].temperature_deci_c.value = 240;
+    state.groups[0].recovery_since_ms = 20000;
+    clock.uptime_ms = 25000; manager.tick(state, clock, config);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    clock.uptime_ms = 34999; manager.tick(state, clock, config);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    clock.uptime_ms = 35000; manager.tick(state, clock, config);
+    TEST_ASSERT_TRUE(manager.nextEvent(alarm));
+    TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupOverTemperature);
+    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Recovery);
 }
 void test_mqtt_state_contains_observed_values_only_and_json_escapes_names() {
     fl::RuntimeState state; fl::AcState fresh; fresh.address = 5; fresh.name.assign("Room \"A\"");
@@ -1186,6 +1259,8 @@ int main() {
     RUN_TEST(test_alarm_manager_debounces_offline_and_emits_confirmed_recovery);
     RUN_TEST(test_alarm_manager_suppresses_boot_burst_and_debounces_fault);
     RUN_TEST(test_alarm_manager_reports_only_four_categories);
+    RUN_TEST(test_group_degraded_alarm_remains_active_during_overtemperature);
+    RUN_TEST(test_overtemperature_alarm_waits_for_configured_recovery_during_group_degradation);
     RUN_TEST(test_mqtt_state_contains_observed_values_only_and_json_escapes_names);
     RUN_TEST(test_mqtt_payload_fits_maximum_registry_and_group_capacity);
     RUN_TEST(test_mqtt_alarm_payload_and_connection_retry_backoff);

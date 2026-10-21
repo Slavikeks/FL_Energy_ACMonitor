@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.7 - 2026-10-21
+
+- Add a small Support link to the Telegram community at the bottom of the web interface.
+
+## 0.7.6 - 2026-10-21
+
+- Keep an active group-overtemperature alarm latched through group-state changes and brief temperature dips; recover only after the configured recovery temperature and delay are satisfied.
+
+## 0.7.5 - 2026-10-21
+
+- Track group-degraded and group-overtemperature alarms independently so both can remain active at once.
+- Keep conditioner alarm tracking stable when registry entries are added or reordered, and write alarm and recovery transitions to the event log.
+- Log SNMP alarm-trap send failures.
+
 ## 0.7.4 - 2026-10-20
 
 - Add an English web interface and a Russian/English language switch.

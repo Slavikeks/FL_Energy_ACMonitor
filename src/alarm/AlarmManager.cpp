@@ -1,4 +1,5 @@
 #include "fl/alarm/AlarmManager.h"
+#include <cstdio>
 
 namespace fl {
 namespace {
@@ -17,6 +18,40 @@ const char* alarmText(AlarmType type, bool recovery) {
 }
 }
 
+namespace {
+const char* alarmTypeName(AlarmType type) {
+    switch (type) {
+    case AlarmType::AcOffline: return "AC offline";
+    case AlarmType::AcFault: return "AC fault";
+    case AlarmType::GroupDegraded: return "group degraded";
+    case AlarmType::GroupOverTemperature: return "group overtemperature";
+    }
+    return "system alarm";
+}
+void appendAlarmLog(EventLog* sink, const AlarmEvent& event) {
+    if (!sink) return;
+    LogEvent entry;
+    entry.severity = event.alarm.state == AlarmState::Problem ? event.alarm.severity : Severity::Info;
+    entry.uptime_ms = event.alarm.changed_ms;
+    entry.epoch = event.alarm.epoch;
+    char message[160]{};
+    const char* state = event.alarm.state == AlarmState::Problem ? "PROBLEM" : "RECOVERY";
+    const char* type = alarmTypeName(event.alarm.type);
+    if (event.alarm.address) {
+        const auto name = event.ac_name.view();
+        std::snprintf(message, sizeof(message), "ALARM %s: %s AC %.*s (address %u)", state, type,
+            static_cast<int>(name.size()), name.data(), static_cast<unsigned>(*event.alarm.address));
+    } else if (event.alarm.group_id) {
+        const auto name = event.group_name.view();
+        std::snprintf(message, sizeof(message), "ALARM %s: %s group %.*s (id %u)", state, type,
+            static_cast<int>(name.size()), name.data(), static_cast<unsigned>(*event.alarm.group_id));
+    } else {
+        std::snprintf(message, sizeof(message), "ALARM %s: %s", state, type);
+    }
+    entry.message.assign(message);
+    sink->append(entry);
+}
+}
 void AlarmManager::tick(RuntimeState& state, const ClockState& clock) { process(state, clock, nullptr); }
 void AlarmManager::tick(RuntimeState& state, const ClockState& clock, const Config& config) { process(state, clock, &config); }
 void AlarmManager::process(RuntimeState& state, const ClockState& clock, const Config* config) {
@@ -30,15 +65,49 @@ void AlarmManager::process(RuntimeState& state, const ClockState& clock, const C
             ac.observed.error_flags.value ? static_cast<std::uint32_t>(*ac.observed.error_flags.value) : 0U};
     }
     for (const auto& group : state.groups) {
-        observations[count++] = {AlarmType::GroupDegraded, {}, group.id, group.state == GroupState::Degraded, 0};
+        const bool degraded = config ?
+            (config->automatic_control_enabled && !state.observe_only && group.mode == GroupMode::Auto &&
+             group.active_addresses.count() < group.required_active) :
+            group.state == GroupState::Degraded;
+        observations[count++] = {AlarmType::GroupDegraded, {}, group.id, degraded, 0};
         const GroupConfig* saved = nullptr;
         if (config) for (const auto& candidate : config->groups) if (candidate.id == group.id) { saved = &candidate; break; }
-        const bool over = saved && group.temperature_deci_c.confirmed() &&
-            *group.temperature_deci_c.value >= saved->high_temp_deci_c && group.state == GroupState::Emergency;
+        bool over = group.state == GroupState::Emergency && group.temperature_deci_c.confirmed();
+        if (config) {
+            const bool monitored = saved && saved->mode == GroupMode::Auto &&
+                config->automatic_control_enabled && !state.observe_only;
+            const bool recovery_complete = monitored && group.temperature_deci_c.confirmed() &&
+                group.recovery_since_ms && clock.uptime_ms >= *group.recovery_since_ms &&
+                clock.uptime_ms - *group.recovery_since_ms >=
+                    static_cast<MonotonicMs>(saved->recovery_delay_s) * 1000;
+            bool alarm_active = false;
+            for (const auto& track : tracked_) if (track.used && track.active &&
+                track.type == AlarmType::GroupOverTemperature && track.group == group.id) {
+                alarm_active = true;
+                break;
+            }
+            // Keep an active temperature alarm latched through brief dips, stale
+            // readings and group-state changes. Only the configured recovery
+            // threshold held for its full delay clears it.
+            over = monitored && group.temperature_deci_c.confirmed() && group.emergency_operation;
+            if (monitored && alarm_active && !recovery_complete) over = true;
+        }
         observations[count++] = {AlarmType::GroupOverTemperature, {}, group.id, over,
             group.temperature_deci_c.value ? static_cast<std::uint32_t>(*group.temperature_deci_c.value) : 0};
     }
-    for (auto& track : tracked_) track.seen = false;
+    for (auto& track : tracked_) {
+        track.seen = false;
+        if (!track.used) continue;
+        bool present = false;
+        for (std::size_t i = 0; i < count; ++i) {
+            if (track.type == observations[i].type && track.address == observations[i].address &&
+                track.group == observations[i].group) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) track = Track{};
+    }
     const std::uint32_t observe_s = config ? config->startup_observe_only_s : 60;
     const bool suppress = clock.uptime_ms < static_cast<MonotonicMs>(observe_s) * 1000;
     state.alarms.clear();
@@ -51,6 +120,7 @@ void AlarmManager::process(RuntimeState& state, const ClockState& clock, const C
         if (track.address) for (const auto& ac : state.conditioners) if (ac.address == *track.address) event.ac_name = ac.name;
         if (track.group) for (const auto& group : state.groups) if (group.id == *track.group) event.group_name = group.name;
         event.text.assign(alarmText(track.type, alarm_state == AlarmState::Recovery));
+        appendAlarmLog(event_log_, event);
         if (count_ == kQueue) { head_ = (head_ + 1) % kQueue; --count_; }
         queue_[(head_ + count_) % kQueue] = event; ++count_;
     };
@@ -61,7 +131,7 @@ void AlarmManager::process(RuntimeState& state, const ClockState& clock, const C
         for (auto& candidate : tracked_) if (candidate.used && candidate.type == observation.type &&
             candidate.address == observation.address && candidate.group == observation.group) { track = &candidate; break; }
         if (!track) {
-            for (auto& candidate : tracked_) if (!candidate.used || !candidate.seen) {
+            for (auto& candidate : tracked_) if (!candidate.used) {
                 candidate = Track{}; candidate.used = true; candidate.type = observation.type;
                 candidate.address = observation.address; candidate.group = observation.group; track = &candidate; break;
             }

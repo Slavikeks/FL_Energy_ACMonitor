@@ -33,7 +33,7 @@ Cookie `fl_session` имеет атрибуты `HttpOnly`, `SameSite=Strict`, �
   "schema_version": 1,
   "device": {
     "name": "FL_Energy_ACMonitor",
-    "version": "0.7.4",
+    "version": "0.7.7",
     "uptime_s": 42,
     "time_valid": false,
     "time_local": null

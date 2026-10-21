@@ -1,12 +1,14 @@
 #pragma once
 #include "fl/alarm/Alarm.h"
 #include "fl/core/Config.h"
+#include "fl/core/EventLog.h"
 #include "fl/core/StateStore.h"
 #include <array>
 
 namespace fl {
 class AlarmManager final : public IAlarmManager {
 public:
+    explicit AlarmManager(EventLog* event_log = nullptr) : event_log_(event_log) {}
     void tick(RuntimeState&, const ClockState&) override;
     void tick(RuntimeState&, const ClockState&, const Config&);
     bool nextEvent(AlarmEvent&) override;
@@ -21,6 +23,7 @@ private:
     std::array<Track, kTracked> tracked_{};
     std::array<AlarmEvent, kQueue> queue_{};
     std::size_t head_{0}, count_{0};
+    EventLog* event_log_{nullptr};
     void process(RuntimeState&, const ClockState&, const Config*);
 };
 } // namespace fl

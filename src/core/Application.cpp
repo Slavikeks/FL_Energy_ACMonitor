@@ -111,7 +111,8 @@ struct Application::ServiceStorage {
     WebService web;
     explicit ServiceStorage(Application& app)
         : network(app.config_, app.log_), auth(app.config_, repository),
-          ota(app.state_.edit(), app.log_), settings(app.config_, repository, network, ota, snmp, mqtt),
+          ota(app.state_.edit(), app.log_), alarms(&app.log_),
+          settings(app.config_, repository, network, ota, snmp, mqtt),
           rotation(repository, app.log_),
           transport(defaultRs485Transport()), bus(transport, defaultXyeCodec(), app.config_, repository, app.log_),
           web(app.state_, app.config_, settings, bus, bus, auth, ota, app.log_, app.clock_) {}
@@ -198,7 +199,8 @@ void Application::tick(MonotonicMs uptime_ms) {
     service_->alarms.tick(state, state.clock, config_);
     AlarmEvent alarm;
     while (service_->alarms.nextEvent(alarm)) {
-        service_->snmp.sendAlarm(alarm);
+        if (service_->snmp.sendAlarm(alarm) == Result::IoError)
+            logApp(log_, Severity::Warning, "SNMP alarm trap send failed");
         service_->mqtt.publishAlarm(alarm);
     }
     service_->snmp.tick(state_, uptime_ms);
