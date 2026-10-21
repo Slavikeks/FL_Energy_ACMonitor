@@ -4,7 +4,7 @@
 
 I built FL Energy AC Monitor to monitor and control compatible Midea air conditioners over the XYE/CCM protocol on RS-485. It runs on a WT32-ETH01 (ESP32) and provides a local web interface, network telemetry, firmware updates, and optional group automation with scheduled rotation.
 
-**Firmware source version: 0.7.4.** The first public GitHub release has not been published yet.
+**Current firmware version: 0.7.4.** The first public release is available on [GitHub Releases](https://github.com/Slavikeks/FL_Energy_ACMonitor/releases/tag/v0.7.4).
 
 ## My controller
 
@@ -63,11 +63,9 @@ See [installation and first-start instructions](docs/INSTALLATION.md). For seria
 
 ## Releases
 
-I plan to attach the firmware images and MIB to GitHub Releases. Replace the placeholder below with the repository URL before publishing:
+The current public release is [v0.7.4](https://github.com/Slavikeks/FL_Energy_ACMonitor/releases/tag/v0.7.4). It includes `firmware.bin` for OTA updates, `firmware.merged.bin` for serial programming, the SNMP MIB, and SHA-256 checksums.
 
-**[GitHub Releases](https://github.com/Slavikeks/FL_Energy_ACMonitor/releases)**
-
-The proposed first release is `v0.7.4`, with separate images for OTA and serial programming. Do not use firmware built for a different board or partition layout.
+See the [bilingual flashing guide](docs/FLASHING.md) for instructions. Use only firmware built for the WT32-ETH01 with 4 MiB flash and the included partition layout.
 
 ## Build and test
 
