@@ -4,6 +4,9 @@
 namespace fl {
 namespace {
 constexpr MonotonicMs kDebounceMs = 10000;
+// Capacity can briefly dip during a poll/protection transition. Only notify
+// when the group remains below N for a full minute; keep recovery responsive.
+constexpr MonotonicMs kGroupDegradedProblemDebounceMs = 60000;
 Severity alarmSeverity(AlarmType type) {
     return type == AlarmType::AcFault || type == AlarmType::GroupOverTemperature ? Severity::Critical : Severity::Warning;
 }
@@ -122,7 +125,10 @@ void AlarmManager::process(RuntimeState& state, const ClockState& clock, const C
         event.text.assign(alarmText(track.type, alarm_state == AlarmState::Recovery));
         appendAlarmLog(event_log_, event);
         if (count_ == kQueue) { head_ = (head_ + 1) % kQueue; --count_; }
-        queue_[(head_ + count_) % kQueue] = event; ++count_;
+        auto& queued = queue_[(head_ + count_) % kQueue];
+        queued.alarm = event.alarm;
+        queued.object_name = track.address ? event.ac_name : event.group_name;
+        ++count_;
     };
 
     for (std::size_t i = 0; i < count; ++i) {
@@ -142,7 +148,9 @@ void AlarmManager::process(RuntimeState& state, const ClockState& clock, const C
             track->active = observation.problem; track->candidate = observation.problem; track->candidate_since_ms = clock.uptime_ms;
         } else {
             if (track->candidate != observation.problem) { track->candidate = observation.problem; track->candidate_since_ms = clock.uptime_ms; }
-            if (clock.uptime_ms >= track->candidate_since_ms && clock.uptime_ms - track->candidate_since_ms >= kDebounceMs && track->active != track->candidate) {
+            const MonotonicMs debounce_ms = track->type == AlarmType::GroupDegraded && track->candidate
+                ? kGroupDegradedProblemDebounceMs : kDebounceMs;
+            if (clock.uptime_ms >= track->candidate_since_ms && clock.uptime_ms - track->candidate_since_ms >= debounce_ms && track->active != track->candidate) {
                 track->active = track->candidate;
                 track->code = observation.code;
                 enqueue(*track, track->active ? AlarmState::Problem : AlarmState::Recovery, observation.code);
@@ -162,6 +170,12 @@ void AlarmManager::process(RuntimeState& state, const ClockState& clock, const C
 
 bool AlarmManager::nextEvent(AlarmEvent& event) {
     if (!count_) return false;
-    event = queue_[head_]; head_ = (head_ + 1) % kQueue; --count_; return true;
+    const auto& queued = queue_[head_];
+    event = AlarmEvent{};
+    event.alarm = queued.alarm;
+    if (event.alarm.address) event.ac_name = queued.object_name;
+    else if (event.alarm.group_id) event.group_name = queued.object_name;
+    event.text.assign(alarmText(event.alarm.type, event.alarm.state == AlarmState::Recovery));
+    head_ = (head_ + 1) % kQueue; --count_; return true;
 }
 } // namespace fl

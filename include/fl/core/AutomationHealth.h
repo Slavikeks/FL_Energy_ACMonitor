@@ -30,6 +30,10 @@ inline bool automationRecentlyObserved(const Config& config, const AcState& ac, 
         now - *ac.last_seen_ms <= automationFreshnessWindowMs(config);
 }
 
+// 0x0002 is the documented defrost state, which is expected during normal
+// operation and must not make an otherwise powered conditioner unhealthy.
+inline constexpr std::uint16_t kExpectedProtectionMask = 0x0002;
+
 inline std::string_view automationHealthIssue(const Config& config, const AcState& ac, MonotonicMs now) {
     const auto* registration = automationRegistration(config, ac.address);
     if (!registration) return "not_registered";
@@ -40,7 +44,9 @@ inline std::string_view automationHealthIssue(const Config& config, const AcStat
     if (!ac.observed.power.confirmed()) return "power_unknown";
     if (!*ac.observed.power.value) return "powered_off";
     if (ac.observed.error_flags.confirmed() && *ac.observed.error_flags.value) return "error";
-    if (ac.observed.protection_flags.confirmed() && *ac.observed.protection_flags.value) return "protection";
+    if (ac.observed.protection_flags.confirmed() &&
+        (*ac.observed.protection_flags.value & static_cast<std::uint16_t>(~kExpectedProtectionMask)) != 0)
+        return "protection";
     if (ac.observed.ccm_error_flags.confirmed() && *ac.observed.ccm_error_flags.value) return "ccm_error";
     return {};
 }

@@ -28,7 +28,7 @@ This guide describes the prebuilt first-release images for WT32-ETH01 with 4 MiB
 
 3. Wait for esptool to report success and let the board restart. Connect a computer to the same Ethernet subnet and open <http://10.90.90.90>.
 
-The merged image writes the bootloader, partition table, and application from flash offset `0x0`. A full serial flash also resets settings stored in NVS; the device returns to its initial configuration (`10.90.90.90`, login `admin`, password `admin`).
+The merged image writes the bootloader, partition table, OTA metadata initializer, and application from flash offset `0x0`. A full serial flash also resets settings stored in NVS; the device returns to its initial configuration (`10.90.90.90`, login `admin`, password `admin`).
 
 ### Update through the web interface
 
@@ -60,7 +60,7 @@ Use the web OTA page to upload `firmware.bin` on an already running compatible d
 
 3. Дождитесь сообщения esptool об успешной записи и перезапуска платы. Подключите компьютер к той же Ethernet-подсети и откройте <http://10.90.90.90>.
 
-Объединённый образ записывает загрузчик, таблицу разделов и приложение начиная со смещения `0x0`. Полная прошивка через программатор также сбрасывает сохранённые в NVS настройки: устройство вернётся к исходным параметрам (`10.90.90.90`, логин `admin`, пароль `admin`).
+Объединённый образ записывает загрузчик, таблицу разделов, данные инициализации OTA и приложение начиная со смещения `0x0`. Полная прошивка через программатор также сбрасывает сохранённые в NVS настройки: устройство вернётся к исходным параметрам (`10.90.90.90`, логин `admin`, пароль `admin`).
 
 ### Обновление через веб-интерфейс
 

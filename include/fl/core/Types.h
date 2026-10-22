@@ -6,7 +6,7 @@
 
 namespace fl {
 inline constexpr std::uint32_t kSchemaVersion = 1;
-inline constexpr char kFirmwareVersion[] = "0.7.7";
+inline constexpr char kFirmwareVersion[] = "0.8.0";
 // The transport scans all 64 protocol addresses, while the embedded runtime
 // reserves typed records for 16 registered units and groups to fit WT32 RAM.
 inline constexpr std::size_t kAddressCount = 64;

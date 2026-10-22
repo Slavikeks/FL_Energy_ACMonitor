@@ -600,6 +600,17 @@ void test_rotation_keeps_running_unit_healthy_during_short_poll_gap() {
     TEST_ASSERT_TRUE(fl::automationHealthIssue(config, state.conditioners[0], clock.uptime_ms).empty());
     TEST_ASSERT_TRUE(fl::automationHealthy(config, state.conditioners[0], clock.uptime_ms));
 }
+void test_automation_health_treats_defrost_as_expected_protection() {
+    fl::Config config; config.bus.poll_interval_ms = 1000;
+    addValidatedUnits(config, 1);
+    fl::AcState ac; setUnit(ac, 0, true, 10000);
+    ac.observed.protection_flags.value = 0x0002;
+    ac.observed.protection_flags.status = fl::ValueStatus::Valid;
+    TEST_ASSERT_TRUE(fl::automationHealthIssue(config, ac, 10000).empty());
+
+    ac.observed.protection_flags.value = 0x0004;
+    TEST_ASSERT_EQUAL_STRING("protection", fl::automationHealthIssue(config, ac, 10000).data());
+}
 void test_unknown_member_blocks_replacement_until_three_failed_polls() {
     fl::Config config; config.automatic_control_enabled = true; config.bus.poll_interval_ms = 1000;
     config.bus.offline_failures = 3; addValidatedUnits(config, 2);
@@ -1060,6 +1071,73 @@ void test_alarm_manager_suppresses_boot_burst_and_debounces_fault() {
     TEST_ASSERT_TRUE(manager.nextEvent(alarm)); TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::AcFault);
     TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Recovery);
 }
+void test_alarm_manager_reports_conditioner_fault_problem_and_recovery() {
+    fl::Config config; config.startup_observe_only_s = 0;
+    fl::RuntimeState state; fl::AcState ac; ac.address = 3; ac.name.assign("AC-3");
+    ac.availability = fl::Availability::Online; ac.freshness = fl::Freshness::Fresh;
+    ac.observed.error_flags.value = 4; ac.observed.error_flags.status = fl::ValueStatus::Valid;
+    state.conditioners.push_back(ac);
+    fl::AlarmManager manager; fl::AlarmEvent alarm; fl::ClockState clock{};
+
+    manager.tick(state, clock, config);
+    clock.uptime_ms = 10000; manager.tick(state, clock, config);
+    TEST_ASSERT_TRUE(manager.nextEvent(alarm));
+    TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::AcFault);
+    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem);
+    TEST_ASSERT_TRUE(alarm.alarm.severity == fl::Severity::Critical);
+    TEST_ASSERT_EQUAL_UINT(4, alarm.alarm.code);
+    TEST_ASSERT_EQUAL_STRING("AC-3", alarm.ac_name.c_str());
+
+    state.conditioners[0].observed.error_flags.value = 0;
+    clock.uptime_ms = 10001; manager.tick(state, clock, config);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    clock.uptime_ms = 20001; manager.tick(state, clock, config);
+    TEST_ASSERT_TRUE(manager.nextEvent(alarm));
+    TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::AcFault);
+    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Recovery);
+    TEST_ASSERT_EQUAL_UINT(0, alarm.alarm.code);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+}
+void test_alarm_manager_preserves_maximum_simultaneous_alarm_burst() {
+    fl::Config config; config.startup_observe_only_s = 0; config.automatic_control_enabled = true;
+    fl::RuntimeState state; state.observe_only = false;
+    for (std::size_t i = 0; i < fl::kMaxAc; ++i) {
+        fl::AcState ac; ac.address = static_cast<fl::Address>(i); ac.name.assign("AC");
+        ac.availability = fl::Availability::Offline;
+        ac.observed.error_flags.value = 1; ac.observed.error_flags.status = fl::ValueStatus::Valid;
+        state.conditioners.push_back(ac);
+    }
+    for (std::size_t i = 0; i < fl::kMaxGroups; ++i) {
+        const auto id = static_cast<fl::GroupId>(i + 1);
+        fl::GroupConfig saved; saved.id = id; saved.name.assign("Group");
+        saved.mode = fl::GroupMode::Auto; saved.required_active = 1;
+        config.groups.push_back(saved);
+        fl::GroupRuntime group; group.id = id; group.name.assign("Group");
+        group.mode = fl::GroupMode::Auto; group.required_active = 1;
+        group.state = fl::GroupState::Emergency; group.emergency_operation = true;
+        group.temperature_deci_c.value = 300; group.temperature_deci_c.status = fl::ValueStatus::Valid;
+        state.groups.push_back(group);
+    }
+
+    fl::AlarmManager manager; fl::ClockState clock{}; fl::AlarmEvent alarm;
+    manager.tick(state, clock, config);
+    clock.uptime_ms = 10000; manager.tick(state, clock, config); // 32 AC + 16 temperature events.
+    clock.uptime_ms = 60000; manager.tick(state, clock, config); // Plus 16 degraded-group events.
+
+    std::size_t offline_count = 0, fault_count = 0, degraded_count = 0, temperature_count = 0;
+    while (manager.nextEvent(alarm)) {
+        TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem);
+        if (alarm.alarm.type == fl::AlarmType::AcOffline) ++offline_count;
+        else if (alarm.alarm.type == fl::AlarmType::AcFault) ++fault_count;
+        else if (alarm.alarm.type == fl::AlarmType::GroupDegraded) ++degraded_count;
+        else if (alarm.alarm.type == fl::AlarmType::GroupOverTemperature) ++temperature_count;
+        else TEST_FAIL_MESSAGE("Unexpected alarm type in conditioner burst");
+    }
+    TEST_ASSERT_EQUAL_UINT(fl::kMaxAc, offline_count);
+    TEST_ASSERT_EQUAL_UINT(fl::kMaxAc, fault_count);
+    TEST_ASSERT_EQUAL_UINT(fl::kMaxGroups, degraded_count);
+    TEST_ASSERT_EQUAL_UINT(fl::kMaxGroups, temperature_count);
+}
 void test_alarm_manager_reports_only_four_categories() {
     fl::Config config; config.startup_observe_only_s = 0; config.automatic_control_enabled = true;
     fl::GroupConfig saved; saved.id = 42; saved.name.assign("Cooling"); saved.mode = fl::GroupMode::Auto;
@@ -1087,15 +1165,55 @@ void test_group_degraded_alarm_remains_active_during_overtemperature() {
     fl::AlarmManager manager; fl::ClockState clock{}; fl::AlarmEvent alarm;
     manager.tick(state, clock, config);
     clock.uptime_ms = 10000; manager.tick(state, clock, config);
-    TEST_ASSERT_TRUE(manager.nextEvent(alarm)); TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupDegraded);
-    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem);
     TEST_ASSERT_TRUE(manager.nextEvent(alarm)); TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupOverTemperature);
     TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem);
     TEST_ASSERT_FALSE(manager.nextEvent(alarm));
-    TEST_ASSERT_EQUAL_UINT(2, state.alarms.size());
+    TEST_ASSERT_EQUAL_UINT(1, state.alarms.size());
     clock.uptime_ms = 20000; manager.tick(state, clock, config);
     TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+
+    clock.uptime_ms = 60000; manager.tick(state, clock, config);
+    TEST_ASSERT_TRUE(manager.nextEvent(alarm)); TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupDegraded);
+    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
     TEST_ASSERT_EQUAL_UINT(2, state.alarms.size());
+}
+void test_group_degraded_alarm_ignores_short_capacity_dip_and_recovers() {
+    fl::Config config; config.startup_observe_only_s = 0; config.automatic_control_enabled = true;
+    fl::GroupConfig saved; saved.id = 19; saved.name.assign("Sorm room");
+    saved.mode = fl::GroupMode::Auto; saved.required_active = 1; config.groups.push_back(saved);
+    fl::RuntimeState state; state.observe_only = false;
+    fl::GroupRuntime group; group.id = 19; group.mode = fl::GroupMode::Auto;
+    group.required_active = 1; state.groups.push_back(group);
+    fl::AlarmManager manager; fl::ClockState clock{}; fl::AlarmEvent alarm;
+
+    manager.tick(state, clock, config);
+    clock.uptime_ms = 20000; manager.tick(state, clock, config);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    TEST_ASSERT_EQUAL_UINT(0, state.alarms.size());
+    state.groups[0].active_addresses.set(0);
+    clock.uptime_ms = 20001; manager.tick(state, clock, config);
+    clock.uptime_ms = 30001; manager.tick(state, clock, config);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    TEST_ASSERT_EQUAL_UINT(0, state.alarms.size());
+
+    state.groups[0].active_addresses.reset(0);
+    clock.uptime_ms = 40000; manager.tick(state, clock, config);
+    clock.uptime_ms = 99999; manager.tick(state, clock, config);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    clock.uptime_ms = 100000; manager.tick(state, clock, config);
+    TEST_ASSERT_TRUE(manager.nextEvent(alarm));
+    TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupDegraded);
+    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Problem);
+
+    state.groups[0].active_addresses.set(0);
+    clock.uptime_ms = 100001; manager.tick(state, clock, config);
+    clock.uptime_ms = 110000; manager.tick(state, clock, config);
+    TEST_ASSERT_FALSE(manager.nextEvent(alarm));
+    clock.uptime_ms = 110001; manager.tick(state, clock, config);
+    TEST_ASSERT_TRUE(manager.nextEvent(alarm));
+    TEST_ASSERT_TRUE(alarm.alarm.type == fl::AlarmType::GroupDegraded);
+    TEST_ASSERT_TRUE(alarm.alarm.state == fl::AlarmState::Recovery);
 }
 void test_overtemperature_alarm_waits_for_configured_recovery_during_group_degradation() {
     fl::Config config; config.startup_observe_only_s = 0; config.automatic_control_enabled = true;
@@ -1249,6 +1367,7 @@ int main() {
     RUN_TEST(test_auto_group_restores_remote_mode_and_setpoint_changes);
     RUN_TEST(test_manual_controlled_auto_member_is_never_reconciled_or_replaced_over_limit);
     RUN_TEST(test_rotation_keeps_running_unit_healthy_during_short_poll_gap);
+    RUN_TEST(test_automation_health_treats_defrost_as_expected_protection);
     RUN_TEST(test_unknown_member_blocks_replacement_until_three_failed_polls);
     RUN_TEST(test_known_fault_failover_stops_old_unit_before_reserve);
     RUN_TEST(test_single_unit_policy_does_not_expand_even_during_emergency);
@@ -1258,8 +1377,11 @@ int main() {
     RUN_TEST(test_emergency_recovery_stop_does_not_advance_rotation_schedule);
     RUN_TEST(test_alarm_manager_debounces_offline_and_emits_confirmed_recovery);
     RUN_TEST(test_alarm_manager_suppresses_boot_burst_and_debounces_fault);
+    RUN_TEST(test_alarm_manager_reports_conditioner_fault_problem_and_recovery);
+    RUN_TEST(test_alarm_manager_preserves_maximum_simultaneous_alarm_burst);
     RUN_TEST(test_alarm_manager_reports_only_four_categories);
     RUN_TEST(test_group_degraded_alarm_remains_active_during_overtemperature);
+    RUN_TEST(test_group_degraded_alarm_ignores_short_capacity_dip_and_recovers);
     RUN_TEST(test_overtemperature_alarm_waits_for_configured_recovery_during_group_degradation);
     RUN_TEST(test_mqtt_state_contains_observed_values_only_and_json_escapes_names);
     RUN_TEST(test_mqtt_payload_fits_maximum_registry_and_group_capacity);

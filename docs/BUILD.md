@@ -55,10 +55,11 @@ $build = Join-Path $env:USERPROFILE ".platformio/workspaces/FL_Energy_ACMonitor/
 esptool --chip esp32 merge-bin -o firmware.merged.bin `
   0x1000 (Join-Path $build "bootloader.bin") `
   0x8000 (Join-Path $build "partitions.bin") `
+  0xE000 (Join-Path $build "boot_app0.bin") `
   0x10000 (Join-Path $build "firmware.bin")
 ```
 
-The resulting `firmware.merged.bin` is written at flash offset `0x0`. For the serial write command and initial network/login defaults, see [the flashing guide](FLASHING.md).
+The merged image includes the bootloader, partition table, initialized OTA metadata, and application, and is written starting at flash offset `0x0`. For the serial write command and initial network/login defaults, see [the flashing guide](FLASHING.md).
 
 ## First serial flash
 

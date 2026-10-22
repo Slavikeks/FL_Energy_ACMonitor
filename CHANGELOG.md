@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.0 - 2026-10-22
+
+- Show the number of available reserve air conditioners on the status page.
+- Include the OTA metadata initializer in the merged image for serial flashing.
+
+## 0.7.10 - 2026-10-22
+
+- Preserve simultaneous alarm transitions in the event queue so a burst of conditioner and group alarms cannot silently discard traps.
+
+## 0.7.9 - 2026-10-22
+
+- Fix malformed SNMPv2c recovery traps when a BER sequence contains exactly 256 bytes; the pinned SNMP library previously encoded this boundary incorrectly.
+
+## 0.7.8 - 2026-10-22
+
+- Treat the documented defrost protection flag (`0x0002`) as a normal operating state for group health; unknown protection bits remain safety-significant.
+- Wait 60 seconds before reporting group capacity degradation, filtering brief dips while keeping the existing 10-second recovery debounce and individual AC alarms.
+
 ## 0.7.7 - 2026-10-21
 
 - Add a small Support link to the Telegram community at the bottom of the web interface.
