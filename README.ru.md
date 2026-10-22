@@ -4,7 +4,7 @@
 
 Сетевой монитор и контроллер совместимых кондиционеров Midea по протоколу XYE/CCM через RS-485. Работает на WT32-ETH01 (ESP32), предоставляет локальный веб-интерфейс, сетевую телеметрию, обновление прошивки и групповое управление с ротацией.
 
-**Последний релиз прошивки: v0.7.7.** Прошивка и список изменений доступны на странице [GitHub Releases](https://github.com/Slavikeks/FL_Energy_ACMonitor/releases/tag/v0.7.7).
+**Последний релиз прошивки: v0.8.0.** Прошивка и список изменений доступны на странице [GitHub Releases](https://github.com/Slavikeks/FL_Energy_ACMonitor/releases/tag/v0.8.0).
 
 ## Контроллер
 
@@ -57,7 +57,7 @@
 
 ## Релизы
 
-Текущий публичный релиз — [v0.7.7](https://github.com/Slavikeks/FL_Energy_ACMonitor/releases/tag/v0.7.7). В него входят `firmware.bin` для OTA, `firmware.merged.bin` для прошивки программатором, MIB для SNMP и контрольные суммы SHA-256.
+Текущий публичный релиз — [v0.8.0](https://github.com/Slavikeks/FL_Energy_ACMonitor/releases/tag/v0.8.0). В него входят `firmware.bin` для OTA, `firmware.merged.bin` для прошивки программатором, MIB для SNMP и контрольные суммы SHA-256.
 
 Инструкция по прошивке есть в [руководстве на русском и английском языках](docs/FLASHING.md). Используйте только прошивку для WT32-ETH01 с flash 4 МБ и соответствующей таблицей разделов.
 
